@@ -19,6 +19,8 @@ _WREN = const(6)  # Write enable
 _RDSR1 = const(5)  # Read status register 1
 _RDSR2 = const(7)  # Read status register 2
 _RDID = const(0x9f)  # Read manufacturer ID
+_DP = const(0xb9) # deep power down
+_RDP = const(0xab) # release from deep power down
 _CE = const(0xc7)  # Chip erase (takes minutes)
 
 _SEC_SIZE = const(4096)  # Flash sector size 0x1000
@@ -35,6 +37,7 @@ class FLASH(FlashDevice):
         self._mvp = memoryview(self._bufp)  # cost-free slicing
         self._page_size = 256  # Write uses 256 byte pages.
 
+        self.wake(verbose)
         size = self.scan(verbose, size)
         super().__init__(block_size, len(cspins), size * 1024, sec_size)
 
@@ -49,6 +52,39 @@ class FLASH(FlashDevice):
         self.initialise()  # Initially cache sector 0
 
     # **** API SPECIAL METHODS ****
+    # release from deep power down
+    def wake(self, verbose):
+        mvp = self._mvp
+        for n, cs in enumerate(self._cspins):
+            cs(0)
+            cnt = 0
+            # Typically takes 2 iterations to wake up, but set a max of 100
+            # to be a little cautious/robust
+            # Original logic borrowed from the ATCWatch project looked for 0x15.
+            # Not sure why that value. From the chip data sheet it is unclear.
+            # Modified to look for anything but 0x00 in the hope that this
+            # approach is less chip specific and more portable, but I couldn't
+            # make it work properly.
+            while cnt < 100 and mvp[0] != 0x15 and mvp[1] != 0x15 and mvp[2] != 0x15:
+                cnt = cnt + 1
+                mvp[:] = b'\0\0\0\0\0\0'
+                mvp[0] = _RDP
+                mvp[1] = 0x01
+                mvp[2] = 0x20
+                mvp[3] = 0x30
+                self._spi.write_readinto(mvp[:4], mvp[:4])
+            cs(1)
+
+    # put in deep power down
+    def sleep(self, verbose):
+        mvp = self._mvp
+        for n, cs in enumerate(self._cspins):
+            mvp[:] = b'\0\0\0\0\0\0'
+            mvp[0] = _DP
+            cs(0)
+            self._spi.write(mvp[:1])
+            cs(1)
+
     # Scan: read manf ID
     def scan(self, verbose, size):
         mvp = self._mvp
