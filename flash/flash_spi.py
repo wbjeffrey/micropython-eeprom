@@ -58,6 +58,7 @@ class FLASH(FlashDevice):
         for n, cs in enumerate(self._cspins):
             cs(0)
             cnt = 0
+            mvp[:] = b'\0\0\0\0\0\0'
             # Typically takes 2 iterations to wake up, but set a max of 100
             # to be a little cautious/robust
             # Original logic borrowed from the ATCWatch project looked for 0x15.
